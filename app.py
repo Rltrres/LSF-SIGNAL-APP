@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -9,28 +8,57 @@ st.set_page_config(page_title="LSF Signal Tool", page_icon="📈", layout="wide"
 TICK_SIZE_DEFAULT = 0.25    # MNQ
 SIGMA_TICKS_DEFAULT = 40.0  # 1σ in ticks
 ADX_THRESHOLD_DEFAULT = 22.5
-DEFAULT_RISK_TICKS = 40
+DEFAULT_RISK_TICKS = 40.0
 
 # --- Helper functions ---
 def one_sigma_price(tick_size: float, sigma_ticks: float) -> float:
-    return tick_size * sigma_ticks
+    return float(tick_size) * float(sigma_ticks)
 
 def risk_ticks_used(user_ticks, default_ticks):
     try:
-        return float(user_ticks) if user_ticks not in (None, "", 0) else float(default_ticks)
+        if user_ticks is None or str(user_ticks).strip() == "":
+            return float(default_ticks)
+        return float(user_ticks)
     except:
         return float(default_ticks)
 
-def cisd_rotation_long_valid(vals) -> bool:
+def decide_side(vals):
+    \"\"\"
+    Decide trade side with a clear hierarchy:
+    1) Base direction from HTF bias *if* CISD + POI are valid.
+    2) Micro override: MSS vs VWAP (with matching VWAP side + slope).
+    3) If CONTINUATION short valid, force SHORT.
+    \"\"\"
+    side = "-"
+
+    if vals["poi_validated"] == "YES" and vals["cisd_confirmed"] == "YES":
+        side = "SHORT" if vals["htf_bias"] == "BEAR" else "LONG"
+
+    # micro overrides
+    if vals["mss_above_vwap"] == "YES" and vals["vwap_side"] == "ABOVE" and vals["vwap_slope"] == "UP":
+        side = "LONG"
+    if vals["mss_below_vwap"] == "YES" and vals["vwap_side"] == "BELOW" and vals["vwap_slope"] == "DOWN":
+        side = "SHORT"
+
+    # continuation short rule
+    if (
+        vals["mss_below_vwap"] == "YES"
+        and vals["vwap_side"] == "BELOW"
+        and vals["vwap_slope"] == "DOWN"
+        and float(vals["adx_3m"]) > float(vals["adx_thr"])
+    ):
+        side = "SHORT"
+
+    return side
+
+def rot_valid(vals):
     return (
-        vals["cisd_confirmed"] == "YES"
-        and vals["poi_validated"] == "YES"
-        and vals["vwap_side"] == "ABOVE"
-        and vals["vwap_slope"] in ("UP","FLAT")
+        vals["poi_validated"] == "YES"
+        and vals["cisd_confirmed"] == "YES"
         and float(vals["adx_3m"]) > float(vals["adx_thr"])
     )
 
-def continuation_short_valid(vals) -> bool:
+def cont_short_valid(vals):
     return (
         vals["mss_below_vwap"] == "YES"
         and vals["vwap_side"] == "BELOW"
@@ -56,25 +84,17 @@ def compute_stop(side, entry, risk_ticks, tick_size):
         return entry + risk_ticks * tick_size
     return None
 
-st.title("LSF Signal Tool — CISD • POI • VWAP • ADX • Deviations")
+# --- UI ---
 with st.sidebar:
     st.header("Config")
-    tick_size = st.number_input(
-        "Tick Size", value=float(TICK_SIZE_DEFAULT), step=0.01, format="%.4f"
-    )
-    sigma_ticks = st.number_input(
-        "Sigma (ticks) — 1σ", value=float(SIGMA_TICKS_DEFAULT), step=1.0, format="%.2f"
-    )
-    adx_thr = st.number_input(
-        "ADX Threshold", value=float(ADX_THRESHOLD_DEFAULT), step=0.25, format="%.2f"
-    )
-    # 👇 make the value a float so it matches the float step (prevents MixedNumericTypesError)
-    default_risk_ticks = st.number_input(
-        "Default Risk (ticks)", value=float(DEFAULT_RISK_TICKS), step=1.0, format="%.0f"
-    )
+    tick_size = st.number_input("Tick Size", value=float(TICK_SIZE_DEFAULT), step=0.01, format="%.4f")
+    sigma_ticks = st.number_input("Sigma (ticks) — 1σ", value=float(SIGMA_TICKS_DEFAULT), step=1.0, format="%.2f")
+    adx_thr = st.number_input("ADX Threshold", value=float(ADX_THRESHOLD_DEFAULT), step=0.25, format="%.2f")
+    default_risk_ticks = st.number_input("Default Risk (ticks)", value=float(DEFAULT_RISK_TICKS), step=1.0, format="%.0f")
 
-
+st.title("LSF Signal Tool — CISD • POI • VWAP • ADX • Deviations")
 st.subheader("Inputs")
+
 c1,c2,c3,c4 = st.columns(4)
 with c1:
     symbol = st.text_input("Symbol", value="MNQZ25")
@@ -92,52 +112,65 @@ with c4:
 c5,c6,c7,c8 = st.columns(4)
 with c5:
     adx_1m = st.number_input("ADX 1m", value=0.0, step=0.25)
-    bias_60 = st.selectbox("HTF Bias 60m", ["BULL","BEAR"], index=1)
+    htf_bias = st.selectbox("HTF Bias 60m", ["BULL","BEAR"], index=1)
 with c6:
     adx_3m = st.number_input("ADX 3m", value=0.0, step=0.25)
-    bias_15 = st.selectbox("MTF Bias 15m", ["BULL","BEAR"], index=1)
+    mtf_bias = st.selectbox("MTF Bias 15m", ["BULL","BEAR"], index=1)
 with c7:
     adx_15m = st.number_input("ADX 15m", value=0.0, step=0.25)
-    bias_1 = st.selectbox("LTF Bias 1m", ["BULL","BEAR"], index=0)
+    ltf_bias = st.selectbox("LTF Bias 1m", ["BULL","BEAR"], index=0)
 with c8:
     adx_60m = st.number_input("ADX 60m", value=0.0, step=0.25)
     session_tag = st.text_input("Session Tag", value="NYKZ")
 
+# POI + FVG stack
 c9,c10,c11,c12 = st.columns(4)
 with c9:
-    poi_type = st.selectbox("POI Type", ["4H_FVG","1H_OB","DO","VWAP","OTHER"], index=0)
+    poi_type = st.selectbox("POI Type", [
+        "1M_FVG","3M_FVG","5M_FVG","15M_FVG",
+        "1H_OB","4H_FVG","DO","VWAP","OTHER"
+    ], index=3)
 with c10:
-    poi_validated = st.selectbox("POI Validated", ["YES","NO"], index=0)
+    fvg_kind = st.selectbox("FVG Type", ["IFVG","FVG","IPDA_GAP","OTHER"], index=0)
 with c11:
+    poi_validated = st.selectbox("POI Validated", ["YES","NO"], index=0)
     cisd_confirmed = st.selectbox("CISD Confirmed", ["YES","NO"], index=0)
-    mss_above = st.selectbox("MSS Above VWAP", ["YES","NO"], index=0)
 with c12:
+    mss_above = st.selectbox("MSS Above VWAP", ["YES","NO"], index=0)
     mss_below = st.selectbox("MSS Below VWAP", ["YES","NO"], index=1)
-    cisd_anchor = st.number_input("CISD Anchor (price)", value=0.0, step=0.25, format="%.2f")
+
+c13,c14,c15,c16 = st.columns(4)
+with c13:
+    fvg_1m = st.checkbox("FVG 1m present", value=False)
+with c14:
+    fvg_3m = st.checkbox("FVG 3m present", value=True)
+with c15:
+    fvg_5m = st.checkbox("FVG 5m present", value=True)
+with c16:
+    fvg_15m = st.checkbox("FVG 15m present", value=True)
+
+cisd_anchor = st.number_input("CISD Anchor (price)", value=0.0, step=0.25, format="%.2f")
 
 # Bundle values
 vals = dict(
-    vwap_side=vwap_side, vwap_slope=vwap_slope, adx_3m=adx_3m, adx_thr=adx_thr,
+    vwap_side=vwap_side, vwap_slope=vwap_slope,
+    adx_3m=adx_3m, adx_thr=adx_thr,
     cisd_confirmed=cisd_confirmed, poi_validated=poi_validated,
-    mss_below_vwap=mss_below
+    mss_below_vwap=mss_below, mss_above_vwap=mss_above,
+    htf_bias=htf_bias
 )
 
 sigma_price = one_sigma_price(tick_size, sigma_ticks)
 risk_ticks = risk_ticks_used(risk_ticks_in, default_risk_ticks)
 
-# Determine scenario
-rot_valid = cisd_rotation_long_valid(vals)
-cont_short_valid = continuation_short_valid(vals)
-
-if rot_valid:
+# Determine scenario + side
+scenario = "WAIT"
+if rot_valid(vals):
     scenario = "CISD_ROTATION"
-    side = "LONG"
-elif cont_short_valid:
+elif cont_short_valid(vals):
     scenario = "CONTINUATION"
-    side = "SHORT"
-else:
-    scenario = "WAIT"
-    side = "-"
+
+side = decide_side(vals) if scenario != "WAIT" else "-"
 
 entry = current_price if entry_type == "MARKET" else (planned_entry if planned_entry else 0.0)
 stop = compute_stop(side, entry, risk_ticks, tick_size) if side in ("LONG","SHORT") else None
@@ -161,13 +194,24 @@ with colD:
     st.write("**1σ (price)**"); st.write(f"{sigma_price:.4f}")
     st.write("**Risk Ticks Used**"); st.write(risk_ticks)
 
-# Notes
+# Notes banner matches actual side
 if scenario == "WAIT":
     st.info("Filters not met — check CISD, POI validation, VWAP position/slope or ADX expansion.")
-elif scenario == "CISD_ROTATION":
-    st.success("Long allowed under HTF bearish when POI + CISD + ADX expansion are satisfied.")
-elif scenario == "CONTINUATION":
-    st.success("Continuation short with trend — MSS below VWAP + down slope + ADX expansion.")
+else:
+    if side == "LONG":
+        st.success("Long allowed when POI + CISD + ADX expansion align with VWAP reclaim / MSS above.")
+    elif side == "SHORT":
+        st.success("Short allowed when POI + CISD + ADX expansion align with VWAP rejection / MSS below.")
+    else:
+        st.warning("Direction unclear — verify MSS vs VWAP and HTF bias.")
+
+# Show stack hints
+confs = []
+if fvg_1m: confs.append("1m FVG")
+if fvg_3m: confs.append("3m FVG")
+if fvg_5m: confs.append("5m FVG")
+if fvg_15m: confs.append("15m FVG")
+st.caption("FVG stack: " + (", ".join(confs) if confs else "none") + f" | POI={poi_type} ({fvg_kind})")
 
 # Make a log row and let user download
 if st.button("Add to Log / Download CSV Row"):
@@ -182,7 +226,9 @@ if st.button("Add to Log / Download CSV Row"):
         "tp2": tp2,
         "risk_ticks": risk_ticks,
         "adx_3m": adx_3m,
-        "poi": poi_type if poi_validated == "YES" else "NONE",
+        "poi": poi_type,
+        "fvg_type": fvg_kind,
+        "fvg_stack": "|".join([s for s,b in zip(["1m","3m","5m","15m"], [fvg_1m,fvg_3m,fvg_5m,fvg_15m]) if b]),
         "cisd_anchor": cisd_anchor,
         "session": session_tag
     }])
@@ -191,4 +237,4 @@ if st.button("Add to Log / Download CSV Row"):
                        mime="text/csv")
 
 st.markdown("---")
-st.caption("Neural-LSF | NY Bias Framework v2.4.1 — Web Tool")
+st.caption("Neural-LSF | NY Bias Framework v2.5 — Web Tool (v2)")
