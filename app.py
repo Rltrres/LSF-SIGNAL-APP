@@ -31,8 +31,6 @@ def decide_side(vals):
     """
     side = "-"
 
-  
-
     if vals["poi_validated"] == "YES" and vals["cisd_confirmed"] == "YES":
         side = "SHORT" if vals["htf_bias"] == "BEAR" else "LONG"
 
@@ -68,13 +66,17 @@ def cont_short_valid(vals):
         and float(vals["adx_3m"]) > float(vals["adx_thr"])
     )
 
-def compute_targets(side, cisd_anchor, sigma_price):
+def compute_targets(side, basis_price, sigma_price):
+    """
+    basis_price: where to project deviations from (CISD, ENTRY, or VWAP)
+    sigma_price: 1σ in price units
+    """
     if side == "LONG":
-        tp1 = cisd_anchor + 2.5 * sigma_price
-        tp2 = cisd_anchor + 4.0 * sigma_price
+        tp1 = basis_price + 2.5 * sigma_price
+        tp2 = basis_price + 4.0  * sigma_price
     elif side == "SHORT":
-        tp1 = cisd_anchor - 2.5 * sigma_price
-        tp2 = cisd_anchor - 4.0 * sigma_price
+        tp1 = basis_price - 2.5 * sigma_price
+        tp2 = basis_price - 4.0  * sigma_price
     else:
         tp1 = tp2 = None
     return tp1, tp2
@@ -153,6 +155,9 @@ with c16:
 
 cisd_anchor = st.number_input("CISD Anchor (price)", value=0.0, step=0.25, format="%.2f")
 
+# New selector: deviation projection basis
+deviation_basis = st.selectbox("Deviation Basis", ["CISD", "ENTRY", "VWAP"], index=0)
+
 # Bundle values
 vals = dict(
     vwap_side=vwap_side, vwap_slope=vwap_slope,
@@ -176,7 +181,16 @@ side = decide_side(vals) if scenario != "WAIT" else "-"
 
 entry = current_price if entry_type == "MARKET" else (planned_entry if planned_entry else 0.0)
 stop = compute_stop(side, entry, risk_ticks, tick_size) if side in ("LONG","SHORT") else None
-tp1, tp2 = compute_targets(side, cisd_anchor, sigma_price)
+
+# Choose basis for targets
+if deviation_basis == "ENTRY" and entry:
+    basis_price = entry
+elif deviation_basis == "VWAP" and vwap:
+    basis_price = vwap
+else:
+    basis_price = cisd_anchor  # default CISD
+
+tp1, tp2 = compute_targets(side, basis_price, sigma_price)
 
 # Display Signal Card
 st.markdown("---")
@@ -195,6 +209,9 @@ with colC:
 with colD:
     st.write("**1σ (price)**"); st.write(f"{sigma_price:.4f}")
     st.write("**Risk Ticks Used**"); st.write(risk_ticks)
+
+basis_label_val = f"{deviation_basis} (value: {basis_price:.2f})" if basis_price else deviation_basis
+st.caption(f"Targets projected from: **{basis_label_val}**")
 
 # Notes banner matches actual side
 if scenario == "WAIT":
@@ -232,6 +249,8 @@ if st.button("Add to Log / Download CSV Row"):
         "fvg_type": fvg_kind,
         "fvg_stack": "|".join([s for s,b in zip(["1m","3m","5m","15m"], [fvg_1m,fvg_3m,fvg_5m,fvg_15m]) if b]),
         "cisd_anchor": cisd_anchor,
+        "deviation_basis": deviation_basis,
+        "basis_price": basis_price,
         "session": session_tag
     }])
     st.download_button("Download Log Row (CSV)", log.to_csv(index=False).encode("utf-8"),
@@ -239,4 +258,4 @@ if st.button("Add to Log / Download CSV Row"):
                        mime="text/csv")
 
 st.markdown("---")
-st.caption("Neural-LSF | NY Bias Framework v2.5 — Web Tool (v2)")
+st.caption("Neural-LSF | NY Bias Framework v2.5 — Web Tool (v3)")
