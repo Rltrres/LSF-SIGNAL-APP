@@ -88,6 +88,58 @@ def compute_stop(side, entry, risk_ticks, tick_size):
         return entry + risk_ticks * tick_size
     return None
 
+def grade_signal(side, vals, fvg_stack_count, poi_type, adx_3m, adx_thr):
+    """Return (score, letter). 0-100 scaled."""
+    score = 0.0
+
+    # CISD + POI gate
+    if vals["cisd_confirmed"] == "YES" and vals["poi_validated"] == "YES":
+        score += 30
+
+    # ADX margin over threshold (cap 30)
+    try:
+        margin = max(0.0, float(adx_3m) - float(adx_thr))
+    except:
+        margin = 0.0
+    score += min(30.0, margin * 1.5)  # 20 pts margin -> 30 score
+
+    # FVG stack depth (cap 20)
+    score += min(20.0, fvg_stack_count * 5.0)
+
+    # VWAP + MSS alignment with side (cap 15; partial 7)
+    vwap_side = vals["vwap_side"]; vwap_slope = vals["vwap_slope"]
+    mss_above = vals["mss_above_vwap"] == "YES"
+    mss_below = vals["mss_below_vwap"] == "YES"
+    full = False; partial = False
+    if side == "LONG":
+        full = (vwap_side == "ABOVE" and vwap_slope in ("UP","FLAT") and mss_above)
+        partial = (vwap_side == "ABOVE" and (vwap_slope in ("UP","FLAT") or mss_above))
+    elif side == "SHORT":
+        full = (vwap_side == "BELOW" and vwap_slope == "DOWN" and mss_below)
+        partial = (vwap_side == "BELOW" and (vwap_slope == "DOWN" or mss_below))
+    score += 15.0 if full else (7.0 if partial else 0.0)
+
+    # HTF agreement bonus (cap 10)
+    htf = vals["htf_bias"]
+    if (htf == "BULL" and side == "LONG") or (htf == "BEAR" and side == "SHORT"):
+        score += 10.0
+
+    # POI strength kicker (cap 5)
+    if poi_type in ("15M_FVG","1H_OB","4H_FVG","DO","VWAP"):
+        score += 5.0
+
+    # Clamp
+    score = max(0.0, min(100.0, score))
+
+    # Map to letters
+    if score >= 85: letter = "A+"
+    elif score >= 75: letter = "A"
+    elif score >= 65: letter = "B"
+    elif score >= 50: letter = "C"
+    else: letter = "D"
+
+    return round(score,1), letter
+
 # --- UI ---
 with st.sidebar:
     st.header("Config")
@@ -201,6 +253,12 @@ if tp_policy.startswith("Ensure") and side in ("LONG","SHORT"):
 
 tp1, tp2 = compute_targets(side, exec_basis, sigma_price)
 
+# --- Grading ---
+fvg_stack_count = int(fvg_1m) + int(fvg_3m) + int(fvg_5m) + int(fvg_15m)
+grade_score, grade_letter = (None, None)
+if scenario != "WAIT" and side in ("LONG","SHORT") and poi_validated == "YES" and cisd_confirmed == "YES" and float(adx_3m) > float(adx_thr):
+    grade_score, grade_letter = grade_signal(side, vals, fvg_stack_count, poi_type, adx_3m, adx_thr)
+
 # Display Signal Card
 st.markdown("---")
 st.subheader("Signal Card")
@@ -235,6 +293,10 @@ else:
     else:
         st.warning("Direction unclear — verify MSS vs VWAP and HTF bias.")
 
+# Grade badge
+if grade_letter:
+    st.markdown(f"**Setup Grade:** {grade_letter}  "+ f"(*score {grade_score}*)")
+
 # Show stack hints
 confs = []
 if fvg_1m: confs.append("1m FVG")
@@ -262,6 +324,8 @@ if st.button("Add to Log / Download CSV Row"):
         "cisd_anchor": cisd_anchor,
         "deviation_basis": deviation_basis,
         "basis_price": exec_basis,
+        "grade_score": grade_score,
+        "grade_letter": grade_letter,
         "session": session_tag
     }])
     st.download_button("Download Log Row (CSV)", log.to_csv(index=False).encode("utf-8"),
@@ -269,4 +333,4 @@ if st.button("Add to Log / Download CSV Row"):
                        mime="text/csv")
 
 st.markdown("---")
-st.caption("Neural-LSF | NY Bias Framework v2.5 — Web Tool (v3.1)")
+st.caption("Neural-LSF | NY Bias Framework v2.6 — Web Tool (v3.2)")
