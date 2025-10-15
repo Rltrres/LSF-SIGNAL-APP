@@ -23,13 +23,15 @@ def risk_ticks_used(user_ticks, default_ticks):
         return float(default_ticks)
 
 def decide_side(vals):
-    \"\"\"
+    """
     Decide trade side with a clear hierarchy:
     1) Base direction from HTF bias *if* CISD + POI are valid.
     2) Micro override: MSS vs VWAP (with matching VWAP side + slope).
     3) If CONTINUATION short valid, force SHORT.
-    \"\"\"
+    """
     side = "-"
+
+  
 
     if vals["poi_validated"] == "YES" and vals["cisd_confirmed"] == "YES":
         side = "SHORT" if vals["htf_bias"] == "BEAR" else "LONG"
