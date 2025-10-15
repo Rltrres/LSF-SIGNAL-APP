@@ -155,8 +155,9 @@ with c16:
 
 cisd_anchor = st.number_input("CISD Anchor (price)", value=0.0, step=0.25, format="%.2f")
 
-# New selector: deviation projection basis
+# New controls for targets
 deviation_basis = st.selectbox("Deviation Basis", ["CISD", "ENTRY", "VWAP"], index=0)
+tp_policy = st.selectbox("TP Basis Policy", ["Ensure beyond entry", "Strict (use selected basis)"], index=0)
 
 # Bundle values
 vals = dict(
@@ -190,7 +191,15 @@ elif deviation_basis == "VWAP" and vwap:
 else:
     basis_price = cisd_anchor  # default CISD
 
-tp1, tp2 = compute_targets(side, basis_price, sigma_price)
+# Safety policy: ensure TPs are beyond entry in the direction of the trade
+exec_basis = basis_price
+if tp_policy.startswith("Ensure") and side in ("LONG","SHORT"):
+    if side == "LONG" and entry:
+        exec_basis = max(basis_price, entry)
+    elif side == "SHORT" and entry:
+        exec_basis = min(basis_price, entry)
+
+tp1, tp2 = compute_targets(side, exec_basis, sigma_price)
 
 # Display Signal Card
 st.markdown("---")
@@ -210,8 +219,10 @@ with colD:
     st.write("**1σ (price)**"); st.write(f"{sigma_price:.4f}")
     st.write("**Risk Ticks Used**"); st.write(risk_ticks)
 
-basis_label_val = f"{deviation_basis} (value: {basis_price:.2f})" if basis_price else deviation_basis
-st.caption(f"Targets projected from: **{basis_label_val}**")
+anchor_txt = f"Selected basis: {deviation_basis} ({basis_price:.2f})"
+if tp_policy.startswith("Ensure") and exec_basis != basis_price:
+    anchor_txt += f" → Exec basis: {exec_basis:.2f} (safety)"
+st.caption(f"Targets projected from: **{anchor_txt}**")
 
 # Notes banner matches actual side
 if scenario == "WAIT":
@@ -250,7 +261,7 @@ if st.button("Add to Log / Download CSV Row"):
         "fvg_stack": "|".join([s for s,b in zip(["1m","3m","5m","15m"], [fvg_1m,fvg_3m,fvg_5m,fvg_15m]) if b]),
         "cisd_anchor": cisd_anchor,
         "deviation_basis": deviation_basis,
-        "basis_price": basis_price,
+        "basis_price": exec_basis,
         "session": session_tag
     }])
     st.download_button("Download Log Row (CSV)", log.to_csv(index=False).encode("utf-8"),
@@ -258,4 +269,4 @@ if st.button("Add to Log / Download CSV Row"):
                        mime="text/csv")
 
 st.markdown("---")
-st.caption("Neural-LSF | NY Bias Framework v2.5 — Web Tool (v3)")
+st.caption("Neural-LSF | NY Bias Framework v2.5 — Web Tool (v3.1)")
