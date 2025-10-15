@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -88,7 +89,7 @@ def compute_stop(side, entry, risk_ticks, tick_size):
         return entry + risk_ticks * tick_size
     return None
 
-def grade_signal(side, vals, fvg_stack_count, poi_type, adx_3m, adx_thr):
+def grade_signal(side, vals, fvg_stack_count, poi_type, adx_3m, adx_thr, poi_dir):
     """Return (score, letter). 0-100 scaled."""
     score = 0.0
 
@@ -124,9 +125,16 @@ def grade_signal(side, vals, fvg_stack_count, poi_type, adx_3m, adx_thr):
     if (htf == "BULL" and side == "LONG") or (htf == "BEAR" and side == "SHORT"):
         score += 10.0
 
-    # POI strength kicker (cap 5)
-    if poi_type in ("15M_FVG","1H_OB","4H_FVG","DO","VWAP"):
+    # POI strength kicker (cap 5) + direction sanity (+5 match, -5 mismatch)
+    strong_poi = ("FVG" in poi_type and poi_type in ("15M_FVG","4H_FVG")) or ("OB" in poi_type) or (poi_type in ("DO","VWAP"))
+    if strong_poi:
         score += 5.0
+
+    if poi_dir in ("BULLISH","BEARISH"):
+        if (poi_dir == "BULLISH" and side == "LONG") or (poi_dir == "BEARISH" and side == "SHORT"):
+            score += 5.0
+        else:
+            score -= 5.0
 
     # Clamp
     score = max(0.0, min(100.0, score))
@@ -179,31 +187,33 @@ with c8:
     adx_60m = st.number_input("ADX 60m", value=0.0, step=0.25)
     session_tag = st.text_input("Session Tag", value="NYKZ")
 
-# POI + FVG stack
+# POI + FVG / OB options
 c9,c10,c11,c12 = st.columns(4)
 with c9:
     poi_type = st.selectbox("POI Type", [
         "1M_FVG","3M_FVG","5M_FVG","15M_FVG",
-        "1H_OB","4H_FVG","DO","VWAP","OTHER"
+        "1M_OB","3M_OB","5M_OB","15M_OB","1H_OB","4H_OB",
+        "DO","VWAP","OTHER"
     ], index=3)
 with c10:
-    fvg_kind = st.selectbox("FVG Type", ["IFVG","FVG","IPDA_GAP","OTHER"], index=0)
+    poi_direction = st.selectbox("POI Direction", ["NEUTRAL","BULLISH","BEARISH"], index=0)
 with c11:
+    fvg_kind = st.selectbox("FVG Type", ["IFVG","FVG","IPDA_GAP","OTHER"], index=0)
     poi_validated = st.selectbox("POI Validated", ["YES","NO"], index=0)
-    cisd_confirmed = st.selectbox("CISD Confirmed", ["YES","NO"], index=0)
 with c12:
+    cisd_confirmed = st.selectbox("CISD Confirmed", ["YES","NO"], index=0)
     mss_above = st.selectbox("MSS Above VWAP", ["YES","NO"], index=0)
-    mss_below = st.selectbox("MSS Below VWAP", ["YES","NO"], index=1)
 
 c13,c14,c15,c16 = st.columns(4)
 with c13:
-    fvg_1m = st.checkbox("FVG 1m present", value=False)
+    mss_below = st.selectbox("MSS Below VWAP", ["YES","NO"], index=1)
 with c14:
-    fvg_3m = st.checkbox("FVG 3m present", value=True)
+    fvg_1m = st.checkbox("FVG 1m present", value=False)
 with c15:
-    fvg_5m = st.checkbox("FVG 5m present", value=True)
+    fvg_3m = st.checkbox("FVG 3m present", value=True)
 with c16:
-    fvg_15m = st.checkbox("FVG 15m present", value=True)
+    fvg_5m = st.checkbox("FVG 5m present", value=True)
+fvg_15m = st.checkbox("FVG 15m present", value=True)
 
 cisd_anchor = st.number_input("CISD Anchor (price)", value=0.0, step=0.25, format="%.2f")
 
@@ -257,7 +267,7 @@ tp1, tp2 = compute_targets(side, exec_basis, sigma_price)
 fvg_stack_count = int(fvg_1m) + int(fvg_3m) + int(fvg_5m) + int(fvg_15m)
 grade_score, grade_letter = (None, None)
 if scenario != "WAIT" and side in ("LONG","SHORT") and poi_validated == "YES" and cisd_confirmed == "YES" and float(adx_3m) > float(adx_thr):
-    grade_score, grade_letter = grade_signal(side, vals, fvg_stack_count, poi_type, adx_3m, adx_thr)
+    grade_score, grade_letter = grade_signal(side, vals, fvg_stack_count, poi_type, adx_3m, adx_thr, poi_direction)
 
 # Display Signal Card
 st.markdown("---")
@@ -295,7 +305,7 @@ else:
 
 # Grade badge
 if grade_letter:
-    st.markdown(f"**Setup Grade:** {grade_letter}  "+ f"(*score {grade_score}*)")
+    st.markdown(f"**Setup Grade:** {grade_letter}  " + f"(*score {grade_score}*)")
 
 # Show stack hints
 confs = []
@@ -303,7 +313,7 @@ if fvg_1m: confs.append("1m FVG")
 if fvg_3m: confs.append("3m FVG")
 if fvg_5m: confs.append("5m FVG")
 if fvg_15m: confs.append("15m FVG")
-st.caption("FVG stack: " + (", ".join(confs) if confs else "none") + f" | POI={poi_type} ({fvg_kind})")
+st.caption("FVG stack: " + (", ".join(confs) if confs else "none") + f" | POI={poi_type} ({fvg_kind}) • Direction={poi_direction}")
 
 # Make a log row and let user download
 if st.button("Add to Log / Download CSV Row"):
@@ -319,6 +329,7 @@ if st.button("Add to Log / Download CSV Row"):
         "risk_ticks": risk_ticks,
         "adx_3m": adx_3m,
         "poi": poi_type,
+        "poi_direction": poi_direction,
         "fvg_type": fvg_kind,
         "fvg_stack": "|".join([s for s,b in zip(["1m","3m","5m","15m"], [fvg_1m,fvg_3m,fvg_5m,fvg_15m]) if b]),
         "cisd_anchor": cisd_anchor,
@@ -333,4 +344,4 @@ if st.button("Add to Log / Download CSV Row"):
                        mime="text/csv")
 
 st.markdown("---")
-st.caption("Neural-LSF | NY Bias Framework v2.6 — Web Tool (v3.2)")
+st.caption("Neural-LSF | NY Bias Framework v2.7 — Web Tool (v3.3)")
