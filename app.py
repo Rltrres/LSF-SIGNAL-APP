@@ -59,10 +59,20 @@ def compute_stop(side, entry, risk_ticks, tick_size):
 st.title("LSF Signal Tool — CISD • POI • VWAP • ADX • Deviations")
 with st.sidebar:
     st.header("Config")
-    tick_size = st.number_input("Tick Size", value=TICK_SIZE_DEFAULT, step=0.01, format="%.4f")
-    sigma_ticks = st.number_input("Sigma (ticks) — 1σ", value=SIGMA_TICKS_DEFAULT, step=1.0, format="%.2f")
-    adx_thr = st.number_input("ADX Threshold", value=ADX_THRESHOLD_DEFAULT, step=0.25, format="%.2f")
-    default_risk_ticks = st.number_input("Default Risk (ticks)", value=DEFAULT_RISK_TICKS, step=1.0, format="%.0f")
+    tick_size = st.number_input(
+        "Tick Size", value=float(TICK_SIZE_DEFAULT), step=0.01, format="%.4f"
+    )
+    sigma_ticks = st.number_input(
+        "Sigma (ticks) — 1σ", value=float(SIGMA_TICKS_DEFAULT), step=1.0, format="%.2f"
+    )
+    adx_thr = st.number_input(
+        "ADX Threshold", value=float(ADX_THRESHOLD_DEFAULT), step=0.25, format="%.2f"
+    )
+    # 👇 make the value a float so it matches the float step (prevents MixedNumericTypesError)
+    default_risk_ticks = st.number_input(
+        "Default Risk (ticks)", value=float(DEFAULT_RISK_TICKS), step=1.0, format="%.0f"
+    )
+
 
 st.subheader("Inputs")
 c1,c2,c3,c4 = st.columns(4)
