@@ -11,7 +11,7 @@ from signal_engine_v3_9 import (
 st.set_page_config(page_title="LSF • Sweep Adaptive", page_icon="🪩", layout="wide")
 
 # Neon theme (same as v3.8)
-st.markdown(\"\"\"
+st.markdown("""
 <style>
 div.block-container {padding-top: 1.2rem; max-width: 1200px;}
 body {background: radial-gradient(1200px 700px at 10% -10%, rgba(0,255,255,.08), transparent),
@@ -25,7 +25,7 @@ h1.title-gradient {background: linear-gradient(90deg,#00e5ff,#ff5cf0,#00ffd5,#00
 .badge.green {background: rgba(0,200,100,.18); border-color: rgba(0,200,100,.45);} .badge.red {background: rgba(255,60,60,.18); border-color: rgba(255,60,60,.45);}
 .small {opacity:.7; font-size:12px}
 </style>
-\"\"\", unsafe_allow_html=True)
+""", unsafe_allow_html=True)
 
 st.markdown("<h1 class='title-gradient'>LSF — Sweep Adaptive Signal Tool</h1>", unsafe_allow_html=True)
 st.caption("Session-aware automation + neon UI + CISD auto targets + trade ticket + reset + grade preview")
