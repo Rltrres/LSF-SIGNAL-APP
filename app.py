@@ -1,16 +1,15 @@
 
-# app.py — v3.6 Neon + Sweep selector + Auto Targets + Trade Ticket
+# app.py — v3.7 (Session-aware automation + NY Low Reversal option)
 import streamlit as st
 import pandas as pd
 from pathlib import Path
-from signal_engine_v3_6 import (
-    Inputs, evaluate_signal, SWEEP_PROFILES, SWEEP_TYPES,
+from signal_engine_v3_7 import (
+    Inputs, evaluate_signal, SWEEP_PROFILES, SWEEP_TYPES, ARCHETYPES,
     load_profiles_from_excel, dump_profiles_to_json, load_profiles_from_json, log_signal_csv
 )
 
-st.set_page_config(page_title="LSF • Sweep Adaptive", page_icon="🪩", layout="wide")
+st.set_page_config(page_title="LSF • Sweep Adaptive", page_icon="🧨", layout="wide")
 
-# Neon/Y2K theme
 st.markdown("""
 <style>
 div.block-container {padding-top: 1.2rem; max-width: 1200px;}
@@ -29,14 +28,11 @@ h1.title-gradient {
 .badge.green {background: rgba(0,200,100,.18); border-color: rgba(0,200,100,.45);}
 .badge.red {background: rgba(255,60,60,.18); border-color: rgba(255,60,60,.45);}
 .small {opacity:.7; font-size:12px}
-.sidebar-note {font-size:12px; opacity:.8}
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown("<h1 class='title-gradient'>LSF — Sweep Adaptive Signal Tool</h1>", unsafe_allow_html=True)
-st.caption("Liquidity sweeps → MSS → VWAP conditioning → ADX ignition. Neon polish + auto targets from CISD.")
 
-# Sidebar
 with st.sidebar:
     st.header("Data & Model")
     tuning_path = Path("profiles_tuning.json")
@@ -52,7 +48,8 @@ with st.sidebar:
         except Exception as e:
             st.error(f"Excel parse failed: {e}")
 
-    model = st.selectbox("Liquidity Model", list(SWEEP_PROFILES.keys()), index=0)
+    model = st.selectbox("Liquidity Model", ARCHETYPES, index=0)
+    session = st.selectbox("Session", ["Asia","London","NY"], index=2)
     sweep_type = st.selectbox("Liquidity Sweep", SWEEP_TYPES, index=0)
     prof = SWEEP_PROFILES[model]
     with st.expander("Model notes", expanded=False):
@@ -71,17 +68,6 @@ with st.sidebar:
     enable_log = st.checkbox("Log 'Entry Ready = YES' to CSV", value=True)
     log_path = str(Path("logs/lsf_signal_log.csv"))
 
-# Quick presets
-st.subheader("Quick Presets")
-p1,p2,p3 = st.columns(3)
-if p1.button("Today — NY Continuation"):
-    st.session_state.update({"vwap_side":"ABOVE","vwap_slope":"UP","htf":"BEAR","l15":"BULL","l3":"BULL","mss":"LONG","model": "Asia_London_NY_Continuation"})
-if p2.button("London Trap (Reversal)"):
-    st.session_state.update({"vwap_side":"BELOW","vwap_slope":"DOWN","htf":"BULL","l15":"BEAR","l3":"BEAR","mss":"SHORT","model":"London_High_Reversal","sweep_type":"London_High"})
-if p3.button("HTF POI Reclaim"):
-    st.session_state.update({"vwap_side":"ABOVE","vwap_slope":"UP","htf":"BEAR","l15":"BULL","l3":"BULL","mss":"LONG","model":"HTF_POI_Sweep","sweep_type":"Settlement_Low"})
-
-# Market inputs
 st.subheader("Market State")
 c1,c2,c3,c4,c5,c6 = st.columns(6)
 with c1:
@@ -113,7 +99,6 @@ with c11:
 with c12:
     micro_fvg = st.checkbox("Micro-FVG present (1m)", value=True)
 
-# Direction & thresholds
 st.subheader("Direction & Thresholds")
 d1,d2,d3 = st.columns(3)
 with d1:
@@ -123,74 +108,11 @@ with d2:
 with d3:
     adx_slope_min = st.number_input("ADX slope min (SMA3-SMA6)", value=0.0, min_value=-5.0, max_value=5.0)
 
-# Trade Ticket with Auto Targets
-st.subheader("Trade Ticket — Entry / Risk / Targets")
-tt1, tt2, tt3, tt4 = st.columns(4)
-with tt1:
-    entry_price = st.number_input("Entry", value=float(price), step=0.25, format="%.2f")
-with tt2:
-    stop_loss = st.number_input("Stop (SL)", value=float(price-20 if desired=='LONG' else price+20), step=0.25, format="%.2f")
-with tt3:
-    tp1 = st.number_input("TP1", value=float(price+30 if desired=='LONG' else price-30), step=0.25, format="%.2f")
-with tt4:
-    tp2 = st.number_input("TP2", value=float(price+60 if desired=='LONG' else price-60), step=0.25, format="%.2f")
-
-st.markdown("**Auto targets — CISD Deviation**")
-at1, at2, at3, at4 = st.columns(4)
-with at1:
-    cisd_anchor = st.number_input("CISD Anchor (price)", value=float(price), step=0.25, format="%.2f")
-with at2:
-    dev_per_sigma = st.number_input("Deviation size (1σ, points)", value=12.5, step=0.25, format="%.2f")
-with at3:
-    mult1 = st.number_input("TP1 multiplier (σ)", value=2.5, step=0.25)
-with at4:
-    mult2 = st.number_input("TP2 multiplier (σ)", value=4.0, step=0.5)
-pol1, pol2 = st.columns(2)
-with pol1:
-    ensure_beyond = st.checkbox("Ensure targets beyond entry", value=True)
-with pol2:
-    apply_auto = st.button("Apply auto targets")
-
-def compute_targets(anchor, dev, m1, m2, side):
-    sign = 1 if side=="LONG" else -1
-    t1 = anchor + sign * (m1 * dev)
-    t2 = anchor + sign * (m2 * dev)
-    return t1, t2
-
-if apply_auto:
-    t1, t2 = compute_targets(cisd_anchor, dev_per_sigma, mult1, mult2, desired)
-    if ensure_beyond:
-        if desired == "LONG":
-            t1 = max(t1, entry_price + 0.25)
-            t2 = max(t2, entry_price + 0.25)
-        else:
-            t1 = min(t1, entry_price - 0.25)
-            t2 = min(t2, entry_price - 0.25)
-    # update session state / displayed values
-    st.session_state["TP1_auto"] = round(t1,2)
-    st.session_state["TP2_auto"] = round(t2,2)
-    st.success(f"Auto TP1={t1:.2f} | TP2={t2:.2f}")
-
-# R:R display
-def rr(entry, sl, tp, side):
-    risk = (entry - sl) if side=="LONG" else (sl - entry)
-    reward = (tp - entry) if side=="LONG" else (entry - tp)
-    if risk <= 0: return None
-    return round(reward / risk, 2)
-
-rr1 = rr(entry_price, stop_loss, st.session_state.get("TP1_auto", tp1), desired)
-rr2 = rr(entry_price, stop_loss, st.session_state.get("TP2_auto", tp2), desired)
-
-c_rr1, c_rr2 = st.columns(2)
-with c_rr1:
-    st.markdown(f"<div class='metric-card'><h3>R:R to TP1</h3><h2>{'—' if rr1 is None else rr1}</h2></div>", unsafe_allow_html=True)
-with c_rr2:
-    st.markdown(f"<div class='metric-card'><h3>R:R to TP2</h3><h2>{'—' if rr2 is None else rr2}</h2></div>", unsafe_allow_html=True)
-
 # Evaluate
 inp = Inputs(
     price=price, vwap_side=vwap_side, vwap_slope=vwap_slope,
     adx_now=adx_now, adx_sma3=adx_sma3, adx_sma6=adx_sma6, adx_kill=adx_kill,
+    session=session,
     mss_dir=None if mss_dir=="None" else mss_dir, mss_tf="3m",
     htf_60m_bias=htf, ltf_15m_bias=l15, ltf_3m_bias=l3,
     liquidity_model=model, sweep_type=sweep_type, bars_since_sweep=bars_since_sweep,
@@ -201,7 +123,6 @@ inp = Inputs(
 )
 res = evaluate_signal(desired, inp, profiles=SWEEP_PROFILES)
 
-# Results
 st.subheader("Signal Result")
 m1, m2, m3 = st.columns([1,1,1])
 with m1:
@@ -214,6 +135,8 @@ with m3:
 if res["banners"]:
     st.warning(" | ".join(res["banners"]))
 
+st.info(f"Model used: **{res.get('model_used')}**")
+
 with st.expander("Component Checks"):
     comp = res["components"]
     badges = []
@@ -224,45 +147,27 @@ with st.expander("Component Checks"):
     st.json(res["components"])
 
 # Logging
-if res["entry_ready"] and enable_log:
+log_path = Path("logs/lsf_signal_log.csv")
+if res["entry_ready"] and st.sidebar.checkbox("Log 'Entry Ready = YES' to CSV", value=True, key="logyes"):
     try:
-        log_signal_csv(log_path, model, desired, res, inp)
-        # trade ticket
-        tlog = Path("logs/trade_tickets.csv")
-        write_header = not tlog.exists()
-        import csv
-        with open(tlog, "a", newline="") as f:
-            w = csv.writer(f)
-            if write_header:
-                w.writerow(["timestamp","model","sweep_type","side","entry","sl","tp1","tp2","rr1","rr2","grade"])
-            import datetime as dt
-            w.writerow([dt.datetime.utcnow().isoformat(), model, sweep_type, desired,
-                        entry_price, stop_loss, st.session_state.get("TP1_auto", tp1),
-                        st.session_state.get("TP2_auto", tp2), rr1, rr2, res["grade"]])
-        st.success("Logged to CSV ✔")
+        log_signal_csv(str(log_path), model, desired, res, inp); st.success("Logged to CSV ✔")
     except Exception as e:
         st.error(f"Logging failed: {e}")
 
-# Download logs
-for name, path in [("Signal Log", log_path), ("Trade Tickets", "logs/trade_tickets.csv")]:
-    p = Path(path)
-    if p.exists():
-        with open(p, "rb") as f:
-            st.download_button(f"Download {name} (CSV)", f, file_name=p.name, mime="text/csv")
-
-# Tuning area (unchanged)
+# Tuning
 st.markdown("---")
 st.subheader("Tuning (per-model)")
 tc1, tc2, tc3 = st.columns(3)
+prof = SWEEP_PROFILES[model]
 with tc1:
-    SWEEP_PROFILES[model]["adx_min"] = st.number_input("ADX min (model)", value=float(SWEEP_PROFILES[model]["adx_min"]), step=1.0)
+    prof["adx_min"] = st.number_input("ADX min (model)", value=float(prof["adx_min"]), step=1.0)
 with tc2:
-    SWEEP_PROFILES[model]["post_sweep_delay"] = st.number_input("Post-sweep delay (bars, model)", value=int(SWEEP_PROFILES[model].get("post_sweep_delay",3)), step=1)
+    prof["post_sweep_delay"] = st.number_input("Post-sweep delay (bars, model)", value=int(prof.get("post_sweep_delay",3)), step=1)
 with tc3:
-    SWEEP_PROFILES[model]["require_vwap_flip"] = st.checkbox("Require VWAP flip", value=bool(SWEEP_PROFILES[model].get("require_vwap_flip", True)))
+    prof["require_vwap_flip"] = st.checkbox("Require VWAP flip", value=bool(prof.get("require_vwap_flip", True)))
 # grade weights
 tw1, tw2, tw3, tw4, tw5 = st.columns(5)
-gw = SWEEP_PROFILES[model]["grade_weights"]
+gw = prof["grade_weights"]
 with tw1:
     gw["sweep"] = st.number_input("Weight: Sweep", value=int(gw.get("sweep",30)), min_value=0, max_value=50)
 with tw2:
