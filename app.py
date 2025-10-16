@@ -106,24 +106,40 @@ with pol1: ensure_beyond = st.checkbox("Ensure targets beyond entry", value=True
 with pol2: preset = st.selectbox("Presets", ["—","2σ/3σ","2.5σ/4σ","3σ/5σ"], index=2)
 with pol3: apply_auto = st.button("Apply auto targets")
 
-def compute_targets(anchor, dev, m1, m2, side):
-    sign = 1 if side=="LONG" else -1
-    return anchor + sign*(m1*dev), anchor + sign*(m2*dev)
+# 1) replace the function
+def compute_targets(anchor, dev, m1, m2, side, entry, ensure):
+    """
+    If 'ensure' is True, use ENTRY as the base so TP is always away from entry.
+    Otherwise, use the provided anchor (legacy behavior).
+    """
+    base = entry if ensure else anchor
+    sign = 1 if side == "LONG" else -1
+    t1 = base + sign * (m1 * dev)
+    t2 = base + sign * (m2 * dev)
 
-if preset != "—":
-    if preset=="2σ/3σ": mult1, mult2 = 2.0, 3.0
-    if preset=="2.5σ/4σ": mult1, mult2 = 2.5, 4.0
-    if preset=="3σ/5σ": mult1, mult2 = 3.0, 5.0
-
-if apply_auto:
-    t1, t2 = compute_targets(cisd_anchor, dev_per_sigma, mult1, mult2, desired)
-    if ensure_beyond:
-        if desired=="LONG":
-            t1 = max(t1, entry_price + 0.25); t2 = max(t2, entry_price + 0.25)
+    # one-tick safety nudge
+    tick = 0.25
+    if ensure:
+        if side == "LONG":
+            t1 = max(t1, entry + tick)
+            t2 = max(t2, entry + tick)
         else:
-            t1 = min(t1, entry_price - 0.25); t2 = min(t2, entry_price - 0.25)
-    st.session_state["TP1_auto"] = round(t1,2); st.session_state["TP2_auto"] = round(t2,2)
+            t1 = min(t1, entry - tick)
+            t2 = min(t2, entry - tick)
+
+    return round(t1, 2), round(t2, 2)
+
+
+# 2) replace the apply call (where we compute TPs) with entry-aware version
+if apply_auto:
+    t1, t2 = compute_targets(
+        cisd_anchor, dev_per_sigma, mult1, mult2,
+        desired, entry_price, ensure_beyond
+    )
+    st.session_state["TP1_auto"] = t1
+    st.session_state["TP2_auto"] = t2
     st.success(f"Auto TP1={t1:.2f} | TP2={t2:.2f}")
+
 
 def rr(entry, sl, tp, side):
     risk = (entry - sl) if side=="LONG" else (sl - entry)
