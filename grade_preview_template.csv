@@ -1,0 +1,5 @@
+delay_ok,mss_ok,vwap_ok,adx_ok,bias_ok
+1,1,1,1,1
+1,0,1,1,1
+0,1,1,1,0
+1,1,0,1,1
