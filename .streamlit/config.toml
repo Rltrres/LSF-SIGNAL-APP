@@ -1,7 +1,7 @@
 [theme]
-base = "dark"
-primaryColor = "#00FF9C"
-backgroundColor = "#0A0A0A"
-secondaryBackgroundColor = "#141414"
-textColor = "#EDEDED"
-font = "sans serif"
+base="dark"
+primaryColor="#00ff9f"          # vivid neon-mint accent
+backgroundColor="#000000"       # true black backdrop
+secondaryBackgroundColor="#0a0a0a" 
+textColor="#d7fbe8"             # soft green-white text
+font="sans serif"
