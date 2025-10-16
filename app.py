@@ -6,6 +6,12 @@ from signal_engine_v3_11 import (
     load_profiles_from_excel, dump_profiles_to_json, load_profiles_from_json, log_signal_csv,
     reset_model_to_defaults
 )
+import streamlit as st
+st.markdown(
+    """<style>""" + open("assets/neon_theme.css").read() + """</style>""",
+    unsafe_allow_html=True,
+)
+
 
 st.set_page_config(page_title="LSF • Sweep Adaptive", page_icon="🪩", layout="wide")
 
