@@ -1,0 +1,83 @@
+/* — Neon Terminal Theme — */
+
+/* Background & layout */
+html, body, [class*="css"] {
+  background-color: #0A0A0A !important;
+  color: #EDEDED !important;
+  font-family: 'Inter', sans-serif;
+}
+
+/* Headings */
+h1, h2, h3, h4 {
+  color: #00FF9C !important;
+  text-shadow: 0 0 10px #00FF9C55;
+}
+
+/* Buttons */
+button, [role="button"] {
+  background: linear-gradient(145deg, #00FF9C, #00B87B);
+  border: none !important;
+  color: #0A0A0A !important;
+  font-weight: 700;
+  border-radius: 8px;
+  box-shadow: 0 0 12px #00FF9C55;
+  transition: all 0.2s ease-in-out;
+}
+button:hover {
+  transform: scale(1.05);
+  box-shadow: 0 0 20px #00FF9C;
+}
+
+/* Inputs */
+input, select, textarea {
+  background-color: #111 !important;
+  color: #EDEDED !important;
+  border: 1px solid #00FF9C55 !important;
+  border-radius: 6px;
+}
+
+/* Metric boxes (like your Grade, ADX, RR boxes) */
+div[data-testid="stMetricValue"], div[data-testid="stMetricLabel"] {
+  color: #00FF9C !important;
+  text-shadow: 0 0 6px #00FF9C55;
+}
+
+/* Sidebar */
+section[data-testid="stSidebar"] {
+  background-color: #0D0D0D !important;
+  border-right: 1px solid #00FF9C33;
+}
+
+/* Cards and containers */
+div[data-testid="stVerticalBlock"] {
+  background: #0F0F0F !important;
+  border-radius: 12px;
+  border: 1px solid #00FF9C22;
+  padding: 10px;
+  margin: 6px 0;
+}
+
+/* Checkboxes and radio buttons */
+.stCheckbox, .stRadio {
+  accent-color: #00FF9C !important;
+}
+
+/* Tables */
+table {
+  border: 1px solid #00FF9C33;
+}
+th {
+  background: #0F0F0F !important;
+  color: #00FF9C !important;
+}
+td {
+  background: #111 !important;
+  color: #EDEDED !important;
+}
+
+/* Glow animation */
+@keyframes pulse {
+  0% { box-shadow: 0 0 5px #00FF9C55; }
+  50% { box-shadow: 0 0 15px #00FF9C99; }
+  100% { box-shadow: 0 0 5px #00FF9C55; }
+}
