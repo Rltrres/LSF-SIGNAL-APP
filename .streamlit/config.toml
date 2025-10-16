@@ -1,10 +1,7 @@
 [theme]
 base = "dark"
-primaryColor = "#C8FF00"          # neon lime accent
-backgroundColor = "#0C0C0C"       # deep black
-secondaryBackgroundColor = "#111111"
-textColor = "#E6E6E6"             # soft grey text
+primaryColor = "#00FF9C"
+backgroundColor = "#0A0A0A"
+secondaryBackgroundColor = "#141414"
+textColor = "#EDEDED"
 font = "sans serif"
-
-[browser]
-gatherUsageStats = false
